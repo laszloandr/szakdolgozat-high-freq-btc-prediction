@@ -1,0 +1,28 @@
+Epoch: 10
+F1 Score: 0.2776
+
+Confusion Matrix:
+[[ 2486 33753  3310]
+ [ 4428 57690  6137]
+ [ 2695 34459  3715]]
+
+Per-class metrics:
+Down:
+  Precision: 0.2587
+  Recall: 0.0629
+  F1: 0.1011
+
+Stable:
+  Precision: 0.4582
+  Recall: 0.8452
+  F1: 0.5943
+
+Up:
+  Precision: 0.2823
+  Recall: 0.0909
+  F1: 0.1375
+
+Class distribution in validation set:
+  Down: 39549 samples (26.60%)
+  Stable: 68255 samples (45.91%)
+  Up: 40869 samples (27.49%)

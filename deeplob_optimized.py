@@ -734,16 +734,29 @@ def train(model, train_loader, val_loader,
         all_true = torch.cat(y_true)
         all_pred = torch.cat(y_pred)
         
-        # F1 score számítása - csak ezt számoljuk minden epoch-nál
+        # F1 score számítása minden osztályra külön-külön
+        class_f1 = f1_score(all_true.cpu().numpy(), all_pred.cpu().numpy(), average=None)
+        
+        # Az osztályok f1 értékei: [down, stable, up] (0, 1, 2 osztályok)
+        f1_down, f1_stable, f1_up = class_f1
+        
+        # Az "up" és "down" osztályok F1 értékeinek átlaga - ez lesz az új mérőszám
+        directional_f1 = (f1_up + f1_down) / 2
+        
+        # A sima macro F1-et is kiszámítjuk a diagnosztikához
         cpu_macro_f1 = f1_score(all_true.cpu().numpy(), all_pred.cpu().numpy(), average='macro')
-        macro_f1 = cpu_macro_f1  # Ezt használjuk a továbbiakban
+        
+        # Az új directional_f1-et használjuk a modell kiválasztásához
+        macro_f1 = directional_f1  # A macro_f1 változónév marad a kompatibilitás miatt
 
         epoch_end = time.time()
         epoch_time = epoch_end - epoch_start
         total_train_time += epoch_time
         
         print(f"Epoch {ep:02d} completed in {epoch_time:.2f}s")
-        print(f"loss={running_loss/len(train_loader.sampler):.4f} F1={macro_f1:.4f}")
+        print(f"Loss: {running_loss/len(train_loader.sampler):.4f}")
+        print(f"F1 Scores - Down: {f1_down:.4f}, Stable: {f1_stable:.4f}, Up: {f1_up:.4f}")
+        print(f"Directional F1 (Up/Down Avg): {directional_f1:.4f}, Macro F1: {cpu_macro_f1:.4f}")
         print(f"Average epoch time so far: {total_train_time/ep:.2f}s")
         print(f"Estimated remaining time: {(epochs-ep)*(total_train_time/ep)/60:.2f} minutes")
         print(f"GPU memory: {torch.cuda.memory_allocated()/1e9:.2f} GB / {torch.cuda.get_device_properties(0).total_memory/1e9:.2f} GB")

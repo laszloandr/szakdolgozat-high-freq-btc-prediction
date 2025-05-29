@@ -1,0 +1,41 @@
+Epoch: 1
+Directional F1: 0.4369
+Macro F1: 0.5252
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Down     0.4134    0.4877    0.4475    307589
+      Stable     0.7456    0.6628    0.7018    643690
+          Up     0.4156    0.4377    0.4264    305918
+
+    accuracy                         0.5652   1257197
+   macro avg     0.5249    0.5294    0.5252   1257197
+weighted avg     0.5840    0.5652    0.5726   1257197
+
+
+Confusion Matrix:
+[[150015  73139  84435]
+ [113234 426644 103812]
+ [ 99589  72435 133894]]
+
+Per-class metrics:
+Down:
+  Precision: 0.4134
+  Recall: 0.4877
+  F1: 0.4475
+
+Stable:
+  Precision: 0.7456
+  Recall: 0.6628
+  F1: 0.7018
+
+Up:
+  Precision: 0.4156
+  Recall: 0.4377
+  F1: 0.4264
+
+Class distribution in validation set:
+  Down: 307589 samples (24.47%)
+  Stable: 643690 samples (51.20%)
+  Up: 305918 samples (24.33%)

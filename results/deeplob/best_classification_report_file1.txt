@@ -1,0 +1,24 @@
+File: norm_book_btc_usdt_20240901_20240915.parquet
+Epoch: 3
+F1 Score: 0.3433
+
+Confusion Matrix:
+[[11892 15901  7206]
+ [31720 52949 18149]
+ [11424 15840  6613]]
+
+Down:
+  Precision: 0.2161
+  Recall: 0.3398
+  F1: 0.2642
+
+Stable:
+  Precision: 0.6252
+  Recall: 0.5150
+  F1: 0.5648
+
+Up:
+  Precision: 0.2069
+  Recall: 0.1952
+  F1: 0.2009
+
