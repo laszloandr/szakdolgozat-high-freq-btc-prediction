@@ -102,10 +102,15 @@ def plot_model_sentiment(
     
     # Y-tengelyek címkézése
     fig.update_yaxes(title_text="Price", row=1, col=1)
+    
+    # Dinamikus skála az alsó panelen (5-95% percentilis alapján)
+    p05 = np.percentile(rolling_avg, 0.1)
+    p95 = np.percentile(rolling_avg, 99.9)
+    
     fig.update_yaxes(
         title_text="Prediction Rolling Avg",
         row=2, col=1,
-        range=[0.88, 1.05]  # Módosított skála az alsó panelen
+        range=[p05, p95]  # Dinamikus skála az értékek 5-95%-os tartományára
     )
     
     # X-tengely formázása
@@ -232,7 +237,7 @@ if __name__ == "__main__":
             timestamps=timestamps,
             prices=prices,
             predictions=predictions,
-            window_size='5min',  # 5 perces gördülő ablak
+            window_size='15min',  # 5 perces gördülő ablak
             title=title
         )
         
