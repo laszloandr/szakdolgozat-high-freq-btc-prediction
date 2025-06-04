@@ -76,24 +76,30 @@ def find_normalized_files(
         if not m or not fp.is_file(): 
             continue
 
-        f_sd, f_ed = pd.to_datetime(m.group(1)), pd.to_datetime(m.group(2))
+        f_sd = pd.to_datetime(m.group(1))
+        f_ed = pd.to_datetime(m.group(2))
+        
+        # Check if file overlaps with requested time period
         if f_ed < sd or f_sd > ed:  # completely outside our date range
             continue
             
+        # Add file info with actual time range
         matching_files.append({
             'path': fp,
-            'start_date': f_sd,
-            'end_date': f_ed,
+            'start_date': max(f_sd, sd),  # Use the later of file start and requested start
+            'end_date': min(f_ed, ed),    # Use the earlier of file end and requested end
             'filename': fn
         })
     
     # Sort files chronologically
     matching_files.sort(key=lambda x: x['start_date'])
     
-    print(f"Found {len(matching_files)} normalized files.")
-    for i, file_info in enumerate(matching_files):
-        print(f"  {i+1}. {file_info['filename']} "  
-              f"({file_info['start_date'].strftime('%Y-%m-%d')} - {file_info['end_date'].strftime('%Y-%m-%d')})")
+    if not matching_files:
+        print(f"No normalized files found for {symbol} between {start_date} and {end_date}")
+    else:
+        print(f"Found {len(matching_files)} normalized files:")
+        for f in matching_files:
+            print(f"  {f['filename']}: {f['start_date']} to {f['end_date']}")
     
     return matching_files
 
@@ -105,26 +111,22 @@ def load_book_chunk(
     data_dir: str = "./szakdolgozat-high-freq-btc-prediction/data_normalized",
 ) -> list:
     """
-    Find normalized LOB (Limit Order Book) Parquet files.
-    Instead of loading all files at once, this returns a list of file information
-    to be loaded one by one during training.
+    Load normalized book data for the specified time period.
     
     Args:
         start_date: Beginning date for data loading
         end_date: End date for data loading
         symbol: Trading pair symbol (e.g., "BTC-USDT")
         data_dir: Directory containing normalized parquet files
-        raw_data_dir: Directory containing raw data files (for fallback)
         
     Returns:
-        List of file information for sequential processing
+        List of file info dictionaries with paths and time ranges
     """
-    # Try to find normalized files first
+    # Find all matching normalized files
     file_infos = find_normalized_files(start_date, end_date, symbol, data_dir)
     
     if not file_infos:
-        print("No normalized files found. Did you run normalize_data.py first?")
-        print("Please run normalize_data.py to prepare normalized data.")
+        print("No normalized files found for the specified time period.")
         return []
     
     return file_infos

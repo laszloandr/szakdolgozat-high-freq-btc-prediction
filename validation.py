@@ -45,19 +45,19 @@ class ModelValidator:
                  horizon=100,
                  batch_size=64,
                  alpha=0.002,
-                 stride=5):
+                 stride=1):
         """
         Inicializálja a modell validáló osztályt.
         
         Args:
-            file_paths: A feldolgozandó fájlok listája
+            file_paths: A feldolgozandó fájlok listája (file info dictionaries)
             model_path: Az előtanított modell elérési útja (.pt fájl)
             depth: Árszintek száma
             window: Időablak mérete
             horizon: Előrejelzési horizont
             batch_size: Batch méret
             alpha: Küszöbérték az árváltozás osztályozásához
-            stride: Lépés mérete a mintavételezéshez
+            stride: Lépés mérete a mintavételezéshez (alapértelmezett: 1 a validációhoz)
         """
         self.file_paths = file_paths
         self.model_path = model_path
@@ -98,37 +98,72 @@ class ModelValidator:
         if 'epoch' in checkpoint:
             print(f"- Trained for {checkpoint['epoch']} epochs")
         
-        # GPU adatbetöltő létrehozása az egész teszthalmazra
-        print("Creating GPU test dataloader...")
+        # Adatok betöltése a validáláshoz
+        print("\nLoading data for validation...")
+        self.data = []
+        for file_info in self.file_paths:
+            print(f"Reading file: {file_info['filename']}")
+            print(f"Time range: {file_info['start_date']} to {file_info['end_date']}")
+            
+            # Betöltjük az összes szükséges oszlopot
+            df = pd.read_parquet(file_info['path'])
+            
+            # Szűrjük az adatokat a megfelelő időszakra
+            mask = (df['received_time'] >= file_info['start_date']) & \
+                   (df['received_time'] <= file_info['end_date'])
+            df = df[mask]
+            
+            if len(df) > 0:
+                self.data.append(df)
+                print(f"Loaded {len(df)} records for time range {df['received_time'].min()} to {df['received_time'].max()}")
+            else:
+                print(f"No data found in time range {file_info['start_date']} to {file_info['end_date']}")
         
-        # A teljes adathalmazt betöltjük a GPU-ra teszt dataloader-ként
-        # valid_frac=0 miatt a teljes adathalmaz a tesztre megy
+        if not self.data:
+            raise ValueError("No data found in the specified time ranges")
+        
+        # Összefűzzük az adatokat
+        self.combined_data = pd.concat(self.data, ignore_index=True)
+        print(f"\nTotal data points loaded: {len(self.combined_data)}")
+        if len(self.combined_data) > 0:
+            print(f"Time range: {self.combined_data['received_time'].min()} to {self.combined_data['received_time'].max()}")
+        
+        # GPU adatbetöltő létrehozása az egész teszthalmazra
+        print("\nCreating GPU test dataloader...")
+        
+        # Create a temporary filtered parquet file for GPU loading
+        temp_dir = Path("./szakdolgozat-high-freq-btc-prediction/temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate a unique filename for the filtered data
+        temp_file = temp_dir / f"filtered_data_{int(time.time())}.parquet"
+        
+        # Save the filtered data to a temporary parquet file
+        print(f"Saving filtered data to temporary file: {temp_file}")
+        self.combined_data.to_parquet(temp_file, index=False)
+        
+        # Create GPU data loader with the filtered file
         _, self.test_loader = create_gpu_data_loaders(
-            file_paths=file_paths,
+            file_paths=[str(temp_file)],  # Use the temporary filtered file
             valid_frac=1.0,  # A teljes adathalmaz tesztként lesz használva
             depth=depth,
             window=window,
             horizon=horizon,
             batch_size=batch_size,
             alpha=alpha,
-            stride=stride,
+            stride=1,  # Force stride=1 for validation to keep all data points
             device=device
         )
         
+        # Clean up the temporary file
+        try:
+            os.remove(temp_file)
+            print(f"Temporary file removed: {temp_file}")
+        except Exception as e:
+            print(f"Warning: Could not remove temporary file {temp_file}: {e}")
+        
         # Veszteségfüggvény
         self.criterion = nn.CrossEntropyLoss()
-        
-        # Adatok betöltése a validáláshoz
-        print("\nLoading data for validation...")
-        self.data = []
-        for file_path in self.file_paths:
-            print(f"Reading file: {file_path}")
-            df = pd.read_parquet(file_path, columns=['received_time', 'ask_0_price'])
-            self.data.append(df)
-        
-        # Összefűzzük az adatokat
-        self.combined_data = pd.concat(self.data, ignore_index=True)
-        print(f"Total data points loaded: {len(self.combined_data)}")
     
     def validate(self):
         """
@@ -375,14 +410,24 @@ def validate_model(start_date, end_date, model_path,
         print("No normalized files found for the specified time period.")
         return None, None
     
-    # Átalakítjuk a fájl információkat abszolút útvonalakká
-    file_paths = process_file_infos(file_infos)
-    print(f"Found {len(file_paths)} files for processing")
+    print(f"Found {len(file_infos)} files for processing")
     print(f"File information loaded in {time.time()-t_start:.2f}s")
+    
+    # Ellenőrizzük, hogy a fájlok lefedik-e a teljes időszakot
+    total_start = min(info['start_date'] for info in file_infos)
+    total_end = max(info['end_date'] for info in file_infos)
+    
+    if total_start > start_date or total_end < end_date:
+        print(f"Warning: Available data only covers {total_start} to {total_end}")
+        print("This is less than the requested time period.")
+        response = input("Do you want to continue with the available data? (y/n): ")
+        if response.lower() != 'y':
+            print("Validation cancelled.")
+            return None, None
     
     # Validator inicializálása
     validator = ModelValidator(
-        file_paths=file_paths,
+        file_paths=file_infos,
         model_path=model_path,
         depth=depth,
         window=window,
@@ -458,7 +503,7 @@ def validate_model(start_date, end_date, model_path,
 if __name__ == "__main__":
     # Példa a használatra
     validate_model(
-        start_date="2025-03-01",
-        end_date="2025-03-02",
+        start_date="2025-03-03",
+        end_date="2025-03-07",
         model_path="./szakdolgozat-high-freq-btc-prediction/models/deeplob_single_parallel_f1_0.4369.pt"
     )

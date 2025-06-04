@@ -217,11 +217,14 @@ if __name__ == "__main__":
     # Elérhető fájlok listázása
     list_available_predictions(prediction_dir)
     
-    # Példa fájl kiválasztása
-    prediction_files = find_prediction_files(prediction_dir)
-    if prediction_files:
-        # Legfrissebb fájl kiválasztása
-        selected_file = prediction_files[-1]
+    # Felhasználói input a fájl kiválasztásához
+    print("\nKérlek add meg a kiválasztott fájl nevét (pl. predictions_deeplob_single_parallel_f1_0_20250303_20250307.parquet):")
+    selected_filename = input().strip()
+    
+    # Teljes útvonal összeállítása
+    selected_file = os.path.join(prediction_dir, selected_filename)
+    
+    if os.path.exists(selected_file):
         print(f"\nKiválasztott fájl: {selected_file}")
         
         # Adatok betöltése
@@ -237,7 +240,7 @@ if __name__ == "__main__":
             timestamps=timestamps,
             prices=prices,
             predictions=predictions,
-            window_size='15min',  # 5 perces gördülő ablak
+            window_size='30min',  # 15 perces gördülő ablak
             title=title
         )
         
@@ -254,6 +257,7 @@ if __name__ == "__main__":
         print(f"\nInteraktív ábra mentve: {html_path}")
         
     else:
-        print(f"Nem található előrejelzés fájl a {prediction_dir} mappában.")
+        print(f"A megadott fájl nem található: {selected_file}")
+        print("Kérlek ellenőrizd a fájlnevet és próbáld újra.")
         
 
