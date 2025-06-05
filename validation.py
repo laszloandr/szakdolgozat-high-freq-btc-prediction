@@ -503,7 +503,7 @@ def validate_model(start_date, end_date, model_path,
 if __name__ == "__main__":
     # Példa a használatra
     validate_model(
-        start_date="2025-03-03",
-        end_date="2025-03-07",
+        start_date="2025-03-01",
+        end_date="2025-03-10",
         model_path="./szakdolgozat-high-freq-btc-prediction/models/deeplob_single_parallel_f1_0.4369.pt"
     )
