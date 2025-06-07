@@ -101,11 +101,13 @@ class ModelValidator:
         # Adatok betöltése a validáláshoz
         print("\nLoading data for validation...")
         self.data = []
+        self.raw_prices = []  # Új lista a nyers áraknak
+        
         for file_info in self.file_paths:
-            print(f"Reading file: {file_info['filename']}")
+            print(f"Reading normalized file: {file_info['filename']}")
             print(f"Time range: {file_info['start_date']} to {file_info['end_date']}")
             
-            # Betöltjük az összes szükséges oszlopot
+            # Betöltjük a normalizált adatokat
             df = pd.read_parquet(file_info['path'])
             
             # Szűrjük az adatokat a megfelelő időszakra
@@ -115,16 +117,50 @@ class ModelValidator:
             
             if len(df) > 0:
                 self.data.append(df)
-                print(f"Loaded {len(df)} records for time range {df['received_time'].min()} to {df['received_time'].max()}")
+                print(f"Loaded {len(df)} normalized records")
+                
+                # Betöltjük a nyers adatokat
+                raw_file_path = os.path.join(
+                    'szakdolgozat-high-freq-btc-prediction/data',
+                    f"book_btc_usdt_{file_info['start_date'].strftime('%Y%m%d')}_{file_info['end_date'].strftime('%Y%m%d')}.parquet"
+                )
+                
+                if os.path.exists(raw_file_path):
+                    print(f"Reading raw file: {raw_file_path}")
+                    raw_df = pd.read_parquet(raw_file_path)
+                    
+                    # Szűrjük a nyers adatokat ugyanarra az időszakra
+                    raw_mask = (raw_df['received_time'] >= file_info['start_date']) & \
+                             (raw_df['received_time'] <= file_info['end_date'])
+                    raw_df = raw_df[raw_mask]
+                    
+                    if len(raw_df) > 0:
+                        # Csak az ask_0_price oszlopot tartjuk meg
+                        raw_prices = raw_df[['received_time', 'ask_0_price']]
+                        self.raw_prices.append(raw_prices)
+                        print(f"Loaded {len(raw_prices)} raw price records")
+                    else:
+                        print(f"No raw data found in time range {file_info['start_date']} to {file_info['end_date']}")
+                else:
+                    print(f"Raw file not found: {raw_file_path}")
             else:
-                print(f"No data found in time range {file_info['start_date']} to {file_info['end_date']}")
+                print(f"No normalized data found in time range {file_info['start_date']} to {file_info['end_date']}")
         
         if not self.data:
             raise ValueError("No data found in the specified time ranges")
         
-        # Összefűzzük az adatokat
+        # Összefűzzük a normalizált adatokat
         self.combined_data = pd.concat(self.data, ignore_index=True)
-        print(f"\nTotal data points loaded: {len(self.combined_data)}")
+        print(f"\nTotal normalized data points loaded: {len(self.combined_data)}")
+        
+        # Összefűzzük a nyers árakat
+        if self.raw_prices:
+            self.combined_raw_prices = pd.concat(self.raw_prices, ignore_index=True)
+            print(f"Total raw price data points loaded: {len(self.combined_raw_prices)}")
+        else:
+            self.combined_raw_prices = None
+            print("Warning: No raw price data loaded")
+        
         if len(self.combined_data) > 0:
             print(f"Time range: {self.combined_data['received_time'].min()} to {self.combined_data['received_time'].max()}")
         
@@ -213,8 +249,27 @@ class ModelValidator:
             # A validált adatok számának megfelelően mintavételezünk
             num_predictions = len(cpu_pred)
             metrics['timestamps'] = self.combined_data['received_time'].values[:num_predictions]
-            metrics['prices'] = self.combined_data['ask_0_price'].values[:num_predictions]
-            print(f"Data shapes: timestamps={len(metrics['timestamps'])}, prices={len(metrics['prices'])}, predictions={len(cpu_pred)}")
+            metrics['normalized_prices'] = self.combined_data['ask_0_price'].values[:num_predictions]
+            
+            # Nyers árak hozzáadása
+            if self.combined_raw_prices is not None:
+                # Merge the raw prices with the normalized data based on timestamps
+                merged_data = pd.merge(
+                    pd.DataFrame({'received_time': metrics['timestamps']}),
+                    self.combined_raw_prices,
+                    on='received_time',
+                    how='left'
+                )
+                metrics['raw_prices'] = merged_data['ask_0_price'].values
+                print(f"Added raw prices to metrics. Shape: {len(metrics['raw_prices'])}")
+            else:
+                print("Warning: No raw prices available to add to metrics")
+                metrics['raw_prices'] = np.zeros_like(metrics['normalized_prices'])
+            
+            print(f"Data shapes: timestamps={len(metrics['timestamps'])}, "
+                  f"normalized_prices={len(metrics['normalized_prices'])}, "
+                  f"raw_prices={len(metrics['raw_prices'])}, "
+                  f"predictions={len(cpu_pred)}")
             
         except Exception as e:
             print(f"Error adding timestamps and prices: {str(e)}")
@@ -467,16 +522,18 @@ def validate_model(start_date, end_date, model_path,
         print("\nChecking metrics for parquet file creation...")
         print(f"Available keys in metrics: {list(metrics.keys())}")
         
-        if 'timestamps' in metrics and 'prices' in metrics and 'raw_predictions' in metrics:
+        if all(key in metrics for key in ['timestamps', 'normalized_prices', 'raw_prices', 'raw_predictions']):
             print(f"Found required data for parquet file:")
             print(f"- Timestamps shape: {len(metrics['timestamps'])}")
-            print(f"- Prices shape: {len(metrics['prices'])}")
+            print(f"- Normalized prices shape: {len(metrics['normalized_prices'])}")
+            print(f"- Raw prices shape: {len(metrics['raw_prices'])}")
             print(f"- Predictions shape: {len(metrics['raw_predictions'])}")
             
             predictions_df = pd.DataFrame({
                 'received_time': metrics['timestamps'],
-                'ask_0_price': metrics['prices'],
-                'prediction': metrics['raw_predictions']
+                'prediction': metrics['raw_predictions'],
+                'normalized_price': metrics['normalized_prices'],
+                'raw_price': metrics['raw_prices']
             })
             
             # Parquet fájl mentése
@@ -485,12 +542,9 @@ def validate_model(start_date, end_date, model_path,
             print(f"Saved predictions to '{predictions_path}'")
         else:
             print("Missing required data for parquet file:")
-            if 'timestamps' not in metrics:
-                print("- timestamps missing")
-            if 'prices' not in metrics:
-                print("- prices missing")
-            if 'raw_predictions' not in metrics:
-                print("- raw_predictions missing")
+            missing_keys = [key for key in ['timestamps', 'normalized_prices', 'raw_prices', 'raw_predictions'] 
+                          if key not in metrics]
+            print(f"Missing keys: {missing_keys}")
     
     print(f"\nValidation completed successfully.")
     if save_output:
@@ -503,7 +557,7 @@ def validate_model(start_date, end_date, model_path,
 if __name__ == "__main__":
     # Példa a használatra
     validate_model(
-        start_date="2025-03-01",
+        start_date="2025-03-05",
         end_date="2025-03-10",
         model_path="./szakdolgozat-high-freq-btc-prediction/models/deeplob_single_parallel_f1_0.4369.pt"
     )

@@ -1,0 +1,41 @@
+Model: ./szakdolgozat-high-freq-btc-prediction/models/deeplob_single_parallel_f1_0.4369.pt
+Directional F1: 0.5177
+Macro F1: 0.4619
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Down     0.4998    0.5630    0.5295   1151769
+      Stable     0.4569    0.2837    0.3501    517902
+          Up     0.4949    0.5175    0.5060   1115130
+
+    accuracy                         0.4928   2784801
+   macro avg     0.4839    0.4547    0.4619   2784801
+weighted avg     0.4899    0.4928    0.4867   2784801
+
+
+Confusion Matrix:
+[[648440  87543 415786]
+ [197906 146934 173062]
+ [450982  87087 577061]]
+
+Per-class metrics:
+Down:
+  Precision: 0.4998
+  Recall: 0.5630
+  F1: 0.5295
+
+Stable:
+  Precision: 0.4569
+  Recall: 0.2837
+  F1: 0.3501
+
+Up:
+  Precision: 0.4949
+  Recall: 0.5175
+  F1: 0.5060
+
+Class distribution in test set:
+  Down: 1151769 samples (41.36%)
+  Stable: 517902 samples (18.60%)
+  Up: 1115130 samples (40.04%)
