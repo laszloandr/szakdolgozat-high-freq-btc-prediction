@@ -1,6 +1,6 @@
 """
-Single Model Parallelism - Egy modell tréningje több GPU részlet párhuzamos használatával.
-Ez a modul egyetlen DeepLOB modellt tanít, de több adatparallelizmus technikával.
+Single Model Parallelism - Training a single model using parallel processing across GPU partitions.
+This module trains a single DeepLOB model but uses multiple data parallelism techniques.
 """
 import os, datetime as dt, time
 from pathlib import Path
@@ -15,30 +15,30 @@ import torch.cuda.amp as amp
 from sklearn.metrics import f1_score, confusion_matrix, classification_report
 import torch.nn.functional as F
 
-# Importáljuk a DeepLOB modellt és az adatbetöltő függvényeket
+# Import the DeepLOB model and data loading functions
 from deeplob_optimized import (
     DeepLOB, 
     load_book_chunk
 )
 
-# Importáljuk az GPU Dataset modult
+# Import the GPU Dataset module
 from gpu_dataset import create_gpu_data_loaders, process_file_infos
 
-# PyTorch és CUDA konfiguráció
+# PyTorch and CUDA configuration
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using", device)
 print(f"GPU: {torch.cuda.get_device_name(0)}")
 print(f"Memory total: {torch.cuda.get_device_properties(0).total_memory/1e9:.2f} GB")
 
-# Optimalizálás
+# Optimization
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 class SingleModelParallelTrainer:
     """
-    Egyetlen modell tréner, amely a modell adatparalelizmusát használja
-    a GPU kihasználtság maximalizálására.
+    A single model trainer that uses model data parallelism
+    to maximize GPU utilization.
     """
     def __init__(self, 
                  file_paths,
@@ -51,22 +51,22 @@ class SingleModelParallelTrainer:
                  epochs=40,
                  lr=1e-3,
                  patience=5,
-                 split_batches=3):  # Hány párhuzamos micro-batch-re osszuk a batch-et
+                 split_batches=3):  # Number of parallel micro-batches to split the batch into
         """
-        Inicializálja a párhuzamos adatfeldolgozású trénert.
+        Initialize the parallel data processing trainer.
         
         Args:
-            file_paths: A feldolgozandó fájlok listája
-            depth: Árszintek száma
-            window: Időablak mérete
-            horizon: Előrejelzési horizont
-            batch_size: Batch méret
-            alpha: Küszöbérték az árváltozás osztályozásához
-            stride: Lépés mérete a mintavételezéshez
-            epochs: Maximális epoch-ok száma
-            lr: Tanulási ráta
-            patience: Early stopping türelmi idő
-            split_batches: Hány párhuzamos micro-batch-re osszuk a batch-et
+            file_paths: List of files to process
+            depth: Number of price levels
+            window: Size of time window
+            horizon: Prediction horizon
+            batch_size: Batch size
+            alpha: Threshold value for price change classification
+            stride: Step size for sampling
+            epochs: Maximum number of epochs
+            lr: Learning rate
+            patience: Early stopping patience
+            split_batches: Number of parallel micro-batches to split the batch into
         """
         self.file_paths = file_paths
         self.depth = depth
@@ -80,30 +80,30 @@ class SingleModelParallelTrainer:
         self.patience = patience
         self.split_batches = split_batches
         
-        # Inicializáljuk a modellt
+        # Initialize the model
         print("Initializing model...")
         self.model = DeepLOB(depth=depth).to(
             device, 
             memory_format=torch.channels_last
         )
         
-        # GPU adatbetöltők létrehozása
+        # Create GPU data loaders
         print("Creating GPU dataloaders...")
         
-        # A teljes adathalmazt betöltjük a GPU-ra
+        # Load the entire dataset to GPU
         self.train_loader, self.val_loader = create_gpu_data_loaders(
             file_paths=file_paths,
             valid_frac=0.1,
             depth=depth,
             window=window,
             horizon=horizon,
-            batch_size=batch_size * split_batches,  # Nagyobb batch-ek, amiket aztán felosztunk
+            batch_size=batch_size * split_batches,  # Larger batches that we'll split later
             alpha=alpha,
             stride=stride,
             device=device
         )
         
-        # Optimalizáló és veszteségfüggvény
+        # Optimizer and loss function
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=lr, 
@@ -113,7 +113,7 @@ class SingleModelParallelTrainer:
             fused=True
         )
         
-        # Mixed precision skálázó
+        # Mixed precision scaler
         self.scaler = amp.GradScaler(
             growth_factor=2.0,
             backoff_factor=0.5,
@@ -121,80 +121,80 @@ class SingleModelParallelTrainer:
             enabled=True
         )
         
-        # Veszteségfüggvény
+        # Loss function
         self.criterion = nn.CrossEntropyLoss()
     
     def _parallel_forward(self, x, y):
         """
-        Párhuzamos forward pass több micro-batch-en.
+        Parallel forward pass on multiple micro-batches.
         
         Args:
-            x: Input batch (már a GPU-n)
-            y: Target batch (már a GPU-n)
+            x: Input batch (already on GPU)
+            y: Target batch (already on GPU)
             
         Returns:
-            Teljes loss és logits
+            Total loss and logits
         """
-        # Felosztjuk a batch-et micro-batch-ekre
+        # Split the batch into micro-batches
         micro_batch_size = x.size(0) // self.split_batches
         
-        # Veszteségek és predikcók tárolása
+        # Store losses and predictions
         losses = []
         all_logits = []
         
-        # Párhuzamos forward pass minden micro-batch-re
+        # Parallel forward pass for each micro-batch
         with torch.amp.autocast(device_type='cuda'):
             for i in range(self.split_batches):
-                # Kiválasztjuk a micro-batch-et
+                # Select the micro-batch
                 start_idx = i * micro_batch_size
                 end_idx = (i + 1) * micro_batch_size if i < self.split_batches - 1 else x.size(0)
                 
                 micro_x = x[start_idx:end_idx].contiguous()
                 micro_y = y[start_idx:end_idx]
                 
-                # Forward pass a micro-batch-en
+                # Forward pass on the micro-batch
                 logits = self.model(micro_x)
                 loss = self.criterion(logits, micro_y) / self.split_batches
                 
-                # Eredmények tárolása
+                # Store results
                 losses.append(loss)
                 all_logits.append(logits)
         
-        # Összegezzük a veszteségeket
+        # Sum up the losses
         total_loss = sum(losses)
         
-        # Összefűzzük a logits-okat
+        # Concatenate the logits
         all_logits = torch.cat(all_logits, dim=0)
         
         return total_loss, all_logits
     
     def train_one_epoch(self, epoch):
         """
-        Egy epoch tréningje párhuzamos adatfeldolgozással.
+        Training one epoch with parallel data processing.
         
         Args:
-            epoch: Az aktuális epoch száma
+            epoch: The current epoch number
             
         Returns:
-            Átlagos veszteség
+            Average loss
         """
         self.model.train()
         running_loss = 0.0
         
-        # Batch időmérés
+        # Batch timing
         batch_times = []
         forward_times = []
         backward_times = []
         
-        # Gradiens akkumuláció számláló
-        accum_steps = 4  # 4 lépésenként frissítünk
+        # Gradient accumulation counter
+        accum_steps = 4  # Update every 4 steps
         
         print(f"Training: {len(self.train_loader)} batches with split_batches={self.split_batches}")
         
         for step, (xb, yb) in enumerate(self.train_loader):
             batch_start = time.time()
             
-            # Párhuzamos forward pass
+            # Parallel forward pass
             forward_start = time.time()
             loss, _ = self._parallel_forward(xb, yb)
             forward_end = time.time()
@@ -206,7 +206,7 @@ class SingleModelParallelTrainer:
             backward_end = time.time()
             backward_times.append(backward_end - backward_start)
             
-            # Gradiens akkumuláció
+            # Gradient accumulation
             if (step + 1) % accum_steps == 0:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
@@ -214,15 +214,15 @@ class SingleModelParallelTrainer:
             
             running_loss += loss.item() * accum_steps
             
-            # Batch idő mérése
+            # Measuring batch time
             batch_end = time.time()
             batch_times.append(batch_end - batch_start)
             
-            # Állapot kiírása minden 50. batch után
+            # Print status after every 50th batch
             if (step + 1) % 50 == 0:
                 avg_batch = sum(batch_times[-50:]) / min(50, len(batch_times[-50:]))
                 
-                # Becsült epoch futási idő (hátralévő batchek * átlagos batch idő)
+                # Estimated epoch runtime (remaining batches * average batch time)
                 remaining_batches = len(self.train_loader) - (step + 1)
                 estimated_remaining_time = remaining_batches * avg_batch
                 elapsed_time = time.time() - batch_start + sum(batch_times[:-1])
@@ -230,9 +230,9 @@ class SingleModelParallelTrainer:
                 
                 print(f"Epoch {epoch} - Batch {step+1}/{len(self.train_loader)} - "
                       f"Loss: {running_loss/(step+1):.4f} - "
-                      f"Becsült epoch idő: {estimated_total_time/60:.2f} perc")
+                      f"Estimated epoch time: {estimated_total_time/60:.2f} minutes")
                 
-                # GPU kihasználtság ellenőrzése
+                # Check GPU utilization
                 print(f"GPU memory: {torch.cuda.memory_allocated()/1e9:.2f} GB / "
                       f"{torch.cuda.get_device_properties(0).total_memory/1e9:.2f} GB")
         
@@ -240,12 +240,12 @@ class SingleModelParallelTrainer:
     
     def validate(self):
         """
-        Validáció párhuzamos adatfeldolgozással, részletes metrikák számításával.
+        Validation with parallel data processing, calculating detailed metrics.
         
         Returns:
-            directional_f1: Az irányos F1 score (up és down osztályok átlaga)
-            val_loss: A validációs veszteség
-            metrics: Dict a részletes metrikákkal
+            directional_f1: The directional F1 score (average of up and down classes)
+            val_loss: The validation loss
+            metrics: Dict with detailed metrics
         """
         print("Starting validation phase...")
         val_start = time.time()
@@ -258,45 +258,45 @@ class SingleModelParallelTrainer:
                 if i % 20 == 0:
                     print(f"Validation batch {i}/{len(self.val_loader)}")
                     
-                # Párhuzamos forward pass validációnál is
+                # Parallel forward pass for validation as well
                 loss, logits = self._parallel_forward(xb, yb)
                 val_loss += loss.item()
                 batch_preds = logits.argmax(1)
                 
-                # Eredmények gyűjtése
+                # Collecting results
                 y_true.append(yb)
                 y_pred.append(batch_preds)
         
         val_end = time.time()
         print(f"Validation completed in {val_end - val_start:.2f}s")
         
-        # Összegyűjtjük az összes predikciót és valós címkét
+        # Collect all predictions and true labels
         all_true = torch.cat(y_true)
         all_pred = torch.cat(y_pred)
         
-        # CPU-ra kell másolni a scikit-learn függvényhez
+        # Need to copy to CPU for the scikit-learn function
         cpu_true = all_true.cpu().numpy()
         cpu_pred = all_pred.cpu().numpy()
         
-        # F1 score számítása minden osztályra külön-külön
+        # Calculate F1 score for each class separately
         class_f1 = f1_score(cpu_true, cpu_pred, average=None)
         
-        # Az osztályok f1 értékei: [down, stable, up] (0, 1, 2 osztályok)
+        # F1 values for classes: [down, stable, up] (classes 0, 1, 2)
         f1_down, f1_stable, f1_up = class_f1
         
-        # Az "up" és "down" osztályok F1 értékeinek átlaga - ez lesz az új mérőszám
+        # Average of F1 values for "up" and "down" classes - this will be the new metric
         directional_f1 = (f1_up + f1_down) / 2
         
-        # A sima macro F1-et is kiszámítjuk a diagnosztikához
+        # We also calculate the regular macro F1 for diagnostics
         macro_f1 = f1_score(cpu_true, cpu_pred, average='macro')
         
-        # Validációs veszteség átlagolása
+        # Average the validation loss
         val_loss = val_loss / len(self.val_loader)
         
-        # Konfúziós mátrix számítása
+        # Calculate the confusion matrix
         conf_matrix = confusion_matrix(cpu_true, cpu_pred)
         
-        # Precision és recall számítása osztályonként GPU-n
+        # Calculate precision and recall for each class on GPU
         conf_tensor = torch.zeros(3, 3, dtype=torch.int, device=device)
         for t in range(3):
             for p in range(3):
@@ -314,11 +314,11 @@ class SingleModelParallelTrainer:
         # F1 score: 2 * (precision * recall) / (precision + recall)
         f1_per_class = 2 * (precision * recall) / (precision + recall + 1e-8)
         
-        # Osztályok eloszlása a validációs halmazban
+        # Class distribution in the validation set
         class_counts = [torch.sum(all_true == i).item() for i in range(3)]
         class_distribution = [count / len(all_true) * 100 for count in class_counts]
         
-        # Részletes classification report a scikit-learn-től
+        # Detailed classification report from scikit-learn
         report = classification_report(
             cpu_true, 
             cpu_pred, 
@@ -327,7 +327,7 @@ class SingleModelParallelTrainer:
             output_dict=True
         )
         
-        # Eredmények összegyűjtése egy szótárban
+        # Collect results in a dictionary
         metrics = {
             'directional_f1': directional_f1,
             'macro_f1': macro_f1,
@@ -348,31 +348,31 @@ class SingleModelParallelTrainer:
     
     def train(self):
         """
-        Modell tréningje.
+        Model training.
         
         Returns:
-            Betanított modell
+            Trained model
         """
         print(f"\n=== Starting Training with Parallel Data Processing ===\n")
         start_time = time.time()
         
-        # Változók inicializálása
+        # Initialize variables
         best_f1 = 0.0
         wait = 0
         total_train_time = 0
         
-        # Főciklus: epoch-ok
+        # Main loop: epochs
         for ep in range(1, self.epochs + 1):
             epoch_start = time.time()
             print(f"\n--- Epoch {ep}/{self.epochs} ---")
             
-            # Tréning
+            # Training
             loss = self.train_one_epoch(ep)
             
-            # Validáció
+            # Validation
             directional_f1, val_loss, metrics = self.validate()
             
-            # Epoch statisztikák
+            # Epoch statistics
             epoch_time = time.time() - epoch_start
             total_train_time += epoch_time
             macro_f1 = metrics['macro_f1']
@@ -380,12 +380,12 @@ class SingleModelParallelTrainer:
             conf_matrix = metrics['conf_matrix']
             f1_down, f1_stable, f1_up = class_f1
             
-            # Eredmények kijelzése
+            # Display results
             print(f"Epoch {ep} - Train Loss: {loss:.4f}, Val Loss: {val_loss:.4f}")
             print(f"F1 Scores - Down: {f1_down:.4f}, Stable: {f1_stable:.4f}, Up: {f1_up:.4f}")
             print(f"Directional F1: {directional_f1:.4f}, Macro F1: {macro_f1:.4f}")
             
-            # Classification report kiírása időnként
+            # Periodically print classification report
             if ep % 10 == 0 or ep == 1:
                 report_str = classification_report(
                     metrics['all_true'],
@@ -395,16 +395,16 @@ class SingleModelParallelTrainer:
                 )
                 print(f"Classification Report:\n{report_str}")
             
-            # Early stopping ellenőrzése
-            if directional_f1 > best_f1 + 1e-4:  # A directional F1-et használjuk az értékeléshez
+            # Check early stopping
+            if directional_f1 > best_f1 + 1e-4:  # We use directional F1 for evaluation
                 best_f1 = directional_f1
                 wait = 0
                 
-                # Könyvtár létrehozása, ha nem létezik
+                # Create directory if it doesn't exist
                 model_dir = Path("models")
                 model_dir.mkdir(exist_ok=True)
                 
-                # Modell mentése
+                # Save model
                 checkpoint_path = Path(f"models/deeplob_single_parallel_f1_{best_f1:.4f}.pt")
                 
                 model_state = {
@@ -419,7 +419,7 @@ class SingleModelParallelTrainer:
                 torch.save(model_state, checkpoint_path)
                 print(f"Model saved to {checkpoint_path}")
                 
-                # Konfúziós mátrix mentése és vizualizációja
+                # Save and visualize confusion matrix
                 plt.figure(figsize=(10, 8))
                 sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues",
                            xticklabels=['Down', 'Stable', 'Up'],
@@ -432,7 +432,7 @@ class SingleModelParallelTrainer:
                 plt.close()
                 print(f"Saved confusion matrix to 'best_confusion_matrix_single_parallel.png'")
                 
-                # Részletesebb statisztikák mentése szöveges fájlba
+                # Save more detailed statistics to text file
                 report_path = f"models/classification_report_single_parallel.txt"
                 with open(report_path, 'w') as f:
                     f.write(f"Epoch: {ep}\n")
@@ -442,7 +442,7 @@ class SingleModelParallelTrainer:
                     f.write("Confusion Matrix:\n")
                     f.write(str(conf_matrix) + "\n\n")
                     
-                    # Osztályonkénti metrikák
+                    # Per-class metrics
                     f.write("Per-class metrics:\n")
                     class_names = ['Down', 'Stable', 'Up']
                     for i, class_name in enumerate(class_names):
@@ -451,7 +451,7 @@ class SingleModelParallelTrainer:
                         f.write(f"  Recall: {metrics['recall'][i]:.4f}\n")
                         f.write(f"  F1: {metrics['f1_per_class'][i]:.4f}\n\n")
                     
-                    # Osztályok eloszlása a validációs halmazban
+                    # Class distribution in validation set
                     f.write("Class distribution in validation set:\n")
                     for i, class_name in enumerate(class_names):
                         f.write(f"  {class_name}: {metrics['class_counts'][i]} samples "
@@ -470,14 +470,14 @@ class SingleModelParallelTrainer:
         print(f"\nTraining completed in {total_train_time:.2f}s ({total_train_time/60:.2f} minutes)")
         print(f"Best F1 score: {best_f1:.4f}")
         
-        # Nem térünk vissza a modellel, mivel a trainer objektum tartalmazza azt
+        # We don't return the model since the trainer object contains it
         return
 
 def main():
-    # Alapvető konfiguráció
+    # Basic configuration
     print("\n=== DeepLOB Training - Single Model Parallelism ===\n")
     
-    # 1. Normalizált adatfájlok keresése
+    # 1. Search for normalized data files
     t_start = time.time()
     file_infos = load_book_chunk(
             dt.datetime(2024, 11, 1),
@@ -488,33 +488,33 @@ def main():
         print("No normalized files found. Please run normalize_data.py first.")
         return
     
-    # Átalakítjuk a fájl információkat abszolút útvonalakká
+    # Convert file information to absolute paths
     file_paths = process_file_infos(file_infos)
     print(f"Found {len(file_paths)} files for processing")
     print(f"File information loaded in {time.time()-t_start:.2f}s")
     
-    # 2. Párhuzamos tréner inicializálása
+    # 2. Initialize parallel trainer
     print("\nInitializing single model parallel trainer...")
     t_start = time.time()
     
-    # Egy modell, de párhuzamos adatfeldolgozással
+    # One model with parallel data processing
     trainer = SingleModelParallelTrainer(
         file_paths=file_paths,
         depth=10,
         window=100,
         horizon=100,
-        batch_size=64,        # Az eredeti batch méret
+        batch_size=64,        # The original batch size
         alpha=0.002,
         stride=5,
         epochs=40,
         lr=1e-3,
         patience=5,
-        split_batches=4       # Hány párhuzamos micro-batch-re osszuk a batch-et
+        split_batches=4       # Number of parallel micro-batches to split the batch into
     )
     
     print(f"Trainer initialization completed in {time.time()-t_start:.2f}s")
     
-    # 3. Modell tréningje párhuzamos adatfeldolgozással
+    # 3. Model training with parallel data processing
     trainer.train()
     
     print("\n=== Training Complete! ===")

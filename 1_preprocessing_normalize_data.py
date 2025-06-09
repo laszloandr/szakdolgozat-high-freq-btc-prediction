@@ -337,34 +337,8 @@ def process_parquet_files(file_infos: List[FileInfo], args):
 
 def main():
     """Fő függvény"""
-    # Ellenőrzés, hogy parancssori argumentumokkal vagy alapértelmezett értékekkel indítsuk
-    import sys
-    if len(sys.argv) > 1:
-        # Parancssori argumentumokkal indult
-        args = parse_args()
-    else:
-        # Debug módban, alapértelmezett értékekkel
-        print("Debug mód: alapértelmezett beállításokkal futtatás...")
-        
-        # Argumentumok manuális beállítása
-        class Args:
-            pass
-        
-        args = Args()
-        args.start_date = "2024-09-01"  # Módosítsd a kezdő dátumot
-        args.end_date = "2025-1-31"    # Módosítsd a végső dátumot
-        args.symbol = "BTC-USDT"         # Módosítsd a szimbólumot
-        args.input_dir = "./szakdolgozat-high-freq-btc-prediction/data"        # Módosítsd az input könyvtárat
-        args.output_dir = "./szakdolgozat-high-freq-btc-prediction/data_normalized"  # Módosítsd az output könyvtárat
-        args.window_days = 5             # Módosítsd a visszatekintő ablak méretét
-        args.stats_update_freq = 1       # Módosítsd a statisztikák frissítésének gyakoriságát
-        
-        print(f"Használt beállítások:")
-        print(f"  Időszak: {args.start_date} - {args.end_date}")
-        print(f"  Szimbólum: {args.symbol}")
-        print(f"  Input könyvtár: {args.input_dir}")
-        print(f"  Output könyvtár: {args.output_dir}")
-        print(f"  Visszatekintő ablak: {args.window_days} nap")
+    # Parancssori argumentumok feldolgozása
+    args = parse_args()
     
     # Dátumok konvertálása
     start_date = dt.datetime.strptime(args.start_date, "%Y-%m-%d")

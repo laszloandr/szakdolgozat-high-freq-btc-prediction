@@ -20,7 +20,7 @@ from deeplob_optimized import (
 )
 
 # Importáljuk az GPU Dataset modult
-from gpu_dataset import create_gpu_data_loaders, process_file_infos
+from gpu_loaders import create_gpu_data_loaders
 
 # PyTorch és CUDA konfiguráció
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

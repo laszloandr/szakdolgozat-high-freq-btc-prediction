@@ -265,7 +265,7 @@ if __name__ == "__main__":
     # Debug mode parameters
     start_date = "20250305"  # Módosítható paraméter
     end_date = "20250310"    # Módosítható paraméter
-    signal_threshold = 5    # Módosítható paraméter: hány konszekutív jelzés szükséges a kereskedéshez
+    signal_threshold = 3    # Módosítható paraméter: hány egymás utáni jelzés szükséges a kereskedéshez
     
     # Relatív elérési út használata
     predictions_file = f"./szakdolgozat-high-freq-btc-prediction/results/deeplob/predictions_deeplob_single_parallel_f1_0_{start_date}_{end_date}.parquet"
