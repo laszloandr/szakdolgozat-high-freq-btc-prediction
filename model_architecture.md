@@ -1,10 +1,16 @@
 ## DeepLOB architecture — what each block does and why I built it this way
 
-| Stage | My goal | Layer stack & activation | Shape flow |
-|-------|---------|--------------------------|------------|
-| **1. Convolutional “micro-features”** | Let the network **learn one book level in isolation** (price-size interaction) before mixing levels. | `Conv2d 1×2 → LeakyReLU` | (100 × 40) → (100 × 20) |
-| | Couple **neighbouring levels** into local imbalance cues. | `Conv2d 1×2 → LeakyReLU` | (100 × 20) → (100 × 10) |
-| | Collapse depth so each time-step becomes a **32-D vector**. | `Conv2d 1×depth → LeakyReLU` | (100 × 10) → (100 × 1) |
+### 1. CNN block – “compress and clean” the raw LOB slice
+
+| Sub-step | Why I need it | Layer spec (PyTorch) | Shape flow* |
+|----------|---------------|----------------------|-------------|
+| **1. Halve feature depth** | Capture **pairwise interaction** between adjacent bid/ask levels while expanding to 32 channels. | `Conv2d(1 → 32, kernel=(1,2), stride=(1,2))`<br>`LeakyReLU(0.01)` | (B, 1, 100, 40) → (B, 32, 100, 20) |
+| **2. Halve again** | Build **4-level context** (each output cell now “sees” 4 original levels). | `Conv2d(32 → 32, kernel=(1,2), stride=(1,2))`<br>`LeakyReLU(0.01)` | (B, 32, 100, 20) → (B, 32, 100, 10) |
+| **3. Collapse width** | Mix all 10 remaining levels into a single **32-D embedding per timestamp**—ready for Inception. | `Conv2d(32 → 32, kernel=(1, depth))` *(= 1×10)*<br>`LeakyReLU(0.01)` | (B, 32, 100, 10) → (B, 32, 100, 1) |
+
+\* The spatial axes are **(time, depth)**; `depth=10` for a 20-level LOB since each level contributes price + size × bid/ask = 4 features.  
+After this block I `squeeze` the last dimension and permute to `(B, 100, 32)`, handing a clean 32-feature sequence to the Inception module.
+
 
 ---
 
