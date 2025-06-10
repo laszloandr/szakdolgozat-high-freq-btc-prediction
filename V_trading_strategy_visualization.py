@@ -15,7 +15,7 @@ import plotly.graph_objects as go
 from typing import List, Dict, Optional, Union
 
 # Import the trading strategy
-from V_trading_strategy import SimpleTradingStrategy
+from trading_strategy import SimpleTradingStrategy
 
 
 def plot_trading_strategy(
