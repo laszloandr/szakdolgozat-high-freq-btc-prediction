@@ -11,7 +11,6 @@
 \* The spatial axes are **(time, depth)**; `depth=10` for a 20-level LOB since each level contributes price + size × bid/ask = 4 features.  
 After this block I `squeeze` the last dimension and permute to `(B, 100, 32)`, handing a clean 32-feature sequence to the Inception module.
 
-
 ---
 
 ### 2. Inception @ 32 ch — multi-scale pattern mining

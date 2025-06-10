@@ -1,0 +1,25 @@
+# Nyers adatok könyvtárai
+data_raw/
+data_normalized/
+
+# Python cache fájlok
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Ideiglenes könyvtárak és cache-k
+.lake_cache/
+temp/
+*.tmp
+
+# Jupyter notebook checkpontok
+.ipynb_checkpoints/
+
+# Virtuális környezet
+venv/
+env/
+
+# Rendszerfájlok
+.DS_Store
+Thumbs.db

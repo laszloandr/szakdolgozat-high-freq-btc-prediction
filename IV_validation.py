@@ -121,7 +121,7 @@ class ModelValidator:
                 
                 # Betöltjük a nyers adatokat
                 raw_file_path = os.path.join(
-                    'szakdolgozat-high-freq-btc-prediction/data',
+                    'szakdolgozat-high-freq-btc-prediction/data_raw',
                     f"book_btc_usdt_{file_info['start_date'].strftime('%Y%m%d')}_{file_info['end_date'].strftime('%Y%m%d')}.parquet"
                 )
                 
@@ -421,7 +421,8 @@ class ModelValidator:
 
 def validate_model(start_date, end_date, model_path, 
                 symbol='BTC-USDT', depth=10, window=100, horizon=100, 
-                batch_size=64, alpha=0.002, stride=5, save_output=True):
+                batch_size=64, alpha=0.002, stride=5, save_output=True,
+                data_dir="./data_normalized"):
     """
     Validál egy előtanított DeepLOB modellt a megadott paraméterekkel.
     
@@ -458,7 +459,8 @@ def validate_model(start_date, end_date, model_path,
     file_infos = load_book_chunk(
         start_date,
         end_date,
-        symbol
+        symbol,
+        data_dir=data_dir
     )
     
     if not file_infos:
@@ -553,7 +555,6 @@ def validate_model(start_date, end_date, model_path,
         
     return metrics, validator
 
-# Példa használat, ha közvetlenül futtatják a fájlt
 if __name__ == "__main__":
     # Példa a használatra
     validate_model(

@@ -240,6 +240,16 @@ class SimpleTradingStrategy:
         # Calculate buy-and-hold return
         buy_and_hold_return = self.calculate_buy_and_hold()
         
+        # Calculáljuk a kereskedések átlagos és medián hosszát másodpercekben
+        if len(trades_df) > 0:
+            # Számítsuk ki a másodpercek tört részét is
+            trades_df['duration_seconds'] = (trades_df['exit_time'] - trades_df['entry_time']).dt.total_seconds()
+            avg_trade_duration = trades_df['duration_seconds'].mean()
+            median_trade_duration = trades_df['duration_seconds'].median()
+        else:
+            avg_trade_duration = 0.0
+            median_trade_duration = 0.0
+        
         # Calculate cumulative returns
         cumulative_returns = (1 + trades_df['profit_pct']).cumprod() - 1
         peak = cumulative_returns.cummax()
@@ -252,6 +262,8 @@ class SimpleTradingStrategy:
             'win_rate': win_rate,
             'total_return': total_return,
             'avg_return': avg_return,
+            'avg_trade_duration': avg_trade_duration,
+            'median_trade_duration': median_trade_duration,
             'sharpe_ratio': sharpe_ratio,
             'max_drawdown': max_drawdown,
             'buy_and_hold_return': buy_and_hold_return,
@@ -260,39 +272,3 @@ class SimpleTradingStrategy:
         
         self.results = results
         return results
-
-if __name__ == "__main__":
-    # Debug mode parameters
-    start_date = "20250305"  # Módosítható paraméter
-    end_date = "20250310"    # Módosítható paraméter
-    signal_threshold = 3    # Módosítható paraméter: hány egymás utáni jelzés szükséges a kereskedéshez
-    
-    # Relatív elérési út használata
-    predictions_file = f"./szakdolgozat-high-freq-btc-prediction/results/deeplob/predictions_deeplob_single_parallel_f1_0_{start_date}_{end_date}.parquet"
-    print(f"Using prediction file: {predictions_file}")
-    print(f"Signal threshold: {signal_threshold}")
-    
-    # Initialize strategy
-    strategy = SimpleTradingStrategy()
-    
-    # Load and preprocess data
-    data = strategy.load_predictions(predictions_file)
-    strategy.preprocess_data(data)
-    
-    # Generate trades with the specified signal threshold
-    trades = strategy.generate_trades(signal_threshold)
-    
-    # Analyze performance
-    results = strategy.analyze_performance()
-    
-    # Print results
-    print("\nTrading Strategy Results:")
-    print("========================")
-    print(f"Total trades: {results['total_trades']}")
-    print(f"Winning trades: {results['winning_trades']} ({results['win_rate']*100:.2f}%)")
-    print(f"Total return: {results['total_return']*100:.2f}%")
-    print(f"Average return per trade: {results['avg_return']*100:.2f}%")
-    print(f"Sharpe ratio: {results['sharpe_ratio']:.2f}")
-    print(f"Maximum drawdown: {results['max_drawdown']*100:.2f}%")
-    print(f"Buy and Hold Return: {results['buy_and_hold_return']*100:.2f}%")
-    print(f"Strategy Outperformance: {results['outperformance']*100:.2f}%")
