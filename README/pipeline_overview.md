@@ -1,7 +1,3 @@
-# szakdolgozat-high-freq-btc-prediction
-
-
-
 ### I. Data collection - 0_lakeapi.ipynb
 
 This script pulls raw order-book snapshots using **`lakeapi`** rather than native exchange endpoints.

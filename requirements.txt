@@ -6,5 +6,4 @@ seaborn==0.13.2       # statisztikai grafika :contentReference[oaicite:4]{index=
 plotly==6.1.2         # interaktív vizualizáció :contentReference[oaicite:5]{index=5}
 scikit-learn==1.7.0   # gépi tanulás / metrikák :contentReference[oaicite:6]{index=6}
 pyarrow==20.0.0       # Arrow, Parquet I/O :contentReference[oaicite:7]{index=7}
-cudf-cu12==25.6.0     # GPU-gyorsított pandas API (CUDA 12) :contentReference[oaicite:8]{index=8}
 lakeapi==0.22.2       # Crypto-market adatok API :contentReference[oaicite:9]{index=9}
