@@ -39,6 +39,8 @@ Please see further details in `.\README\model_architecture.md`
 Please see the created models in `.\models` folder, being the `.\models\deeplob_single_parallel_f1_0.4369.pt` best performing model which I used in the validation. Please see `best_confusion_matrix_single_parallel_100-100-0.002.png` for the confusion matrix of the model validation (last 10% of period, which is 17 Febr 2025 → 28 Febr 2025) in `.\results\deeplob`.
 
 Please see the best performing model's results for period 05 March 2025 → 10 March 2025 in files `validation_conf_matrix_deeplob_single_parallel_f1_0_20250606_091933.png` and `validation_report_deeplob_single_parallel_f1_0_20250606_091933.txt` in `.\results\deeplob`
+
+PLEASE RUN `validation_and_strategy.ipynb` TO RUN THE VALIDATION PIPELINE AND THE TRADING STRATEGY.
 ---
 
 ## Trading simulation  
@@ -52,6 +54,9 @@ A deliberately simple rule set converts predictions to P&L:
 
 The goal isn’t a production strategy but a sanity check: does the classifier generate tradeable directional bias after realistic filtering?
 
+Please see `.\results\visualizations\trading_strategy.html` for the performance of the trading strategy.
+Please run the `validation_and_strategy.ipynb` respective cell to see the above written metrics of the trading performance.
+
 ---
 
 ## Folder map  
@@ -63,4 +68,4 @@ README/pipeline_overview.md ← normalise → train → validate → trade
 validation_and_strategy.ipynb← one-click notebook demo
 
 
-Follow `README/env_setup.md`, and you can reproduce every result on a single NVIDIA GPU laptop.
+Follow `README/env_setup.md`, and you can reproduce every result on a single NVIDIA GPU computer.

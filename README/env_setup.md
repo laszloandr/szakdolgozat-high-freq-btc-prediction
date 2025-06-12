@@ -29,7 +29,7 @@
 
 ---
 
-### 3. Create the RAPIDS + PyTorch conda env
+### 3. Create the linux virtual environment (open in WSL terminal)
 
 ```bash
 # inside WSL or your Linux shell
