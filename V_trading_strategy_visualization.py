@@ -22,7 +22,7 @@ def plot_trading_strategy(
     strategy: SimpleTradingStrategy,
     title="Price vs. Trading Strategy Performance",
     save_path=None,
-    max_trades=500
+    date_range: tuple = None
 ) -> go.Figure:
     """
     Create a Plotly-based interactive time series chart with price data and the trading strategy's
@@ -32,7 +32,7 @@ def plot_trading_strategy(
         strategy: An initialized and executed SimpleTradingStrategy instance
         title: Chart title
         save_path: Save path (if provided)
-        max_trades: Maximum number of trades to display (samples if there are too many data points)
+        date_range: Optional tuple of (start_datetime, end_datetime) to filter trades by date range
         
     Returns:
         plotly.graph_objects.Figure: The created interactive chart
@@ -48,37 +48,38 @@ def plot_trading_strategy(
     # Convert trading data to DataFrame
     all_trades_df = pd.DataFrame(strategy.trades)
     
-    # Sampling in case of too many trades
-    print(f"Total number of trades: {len(all_trades_df)}")
+    # Filter by date range if provided
     t_start = time.time()
+    print(f"Total number of trades: {len(all_trades_df)}")
     
-    if len(all_trades_df) > max_trades:
-        print(f"Sampling to {max_trades} trades for even display...")
-        # Uniform sampling taking every nth element
-        sample_step = len(all_trades_df) // max_trades
-        trades_df = all_trades_df.iloc[::sample_step].copy()
-        print(f"Number of sampled trades: {len(trades_df)}")
+    if date_range is not None:
+        start_date, end_date = date_range
+        
+        # Convert string dates to pandas datetime if needed
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date)
+        if isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date)
+            
+        # Filter trades for the specified date range
+        trades_df = all_trades_df[
+            (all_trades_df['entry_time'] >= start_date) & 
+            (all_trades_df['exit_time'] <= end_date)
+        ]
+        
+        # Also filter main dataframe to the date range
+        df = df[(df.index >= start_date) & (df.index <= end_date)]
+        
+        print(f"Filtered to {len(trades_df)} trades in date range ({start_date} to {end_date})")
     else:
+        # Use all trades if no date range is specified
         trades_df = all_trades_df.copy()
         
     print(f"Preparation time: {time.time() - t_start:.2f}s")
     
-    # Calculate cumulative returns for ALL trades (not just the sampled ones)
-    # This way we see the real return, which matches the one shown in the strategy report
-    all_cum_returns = (1 + all_trades_df['profit_pct']).cumprod() - 1
-    
-    # For visualization, we use the sampled points
-    # With timestamps based on all trades
-    if len(all_trades_df) > max_trades:
-        # Uniform sampling for cumulative returns as well
-        sample_indices = np.linspace(0, len(all_cum_returns)-1, max_trades).astype(int)
-        # Then we take the appropriate data for cumulative returns
-        sampled_cum_returns = all_cum_returns.iloc[sample_indices]
-        sampled_exit_times = all_trades_df['exit_time'].iloc[sample_indices]
-        cumulative_returns_data = pd.Series(sampled_cum_returns.values, index=sampled_exit_times)
-    else:
-        cumulative_returns_data = pd.Series(all_cum_returns.values, index=all_trades_df['exit_time'])
-    
+    # A trades_df már csak a kiszűrt kereskedéseket tartalmazza, rendezzük időben
+    trades_df = trades_df.sort_values('exit_time')
+
     # Create chart with two panels
     fig = make_subplots(
         rows=2, cols=1,
@@ -106,14 +107,43 @@ def plot_trading_strategy(
     losing_segments = []
     no_trade_segments = []
     
-    print(f"Total return for all trades: {all_cum_returns.iloc[-1]*100:.2f}%")
+    # Also print simple sum return for comparison with strategy.analyze_performance()
+    simple_return = all_trades_df['profit_pct'].sum()*100 if len(all_trades_df) > 0 else 0.00
+    print(f"Simple-sum return: {simple_return:.2f}% (matches analyze_performance)")
     
     # First sort trades by time
     trades_df = trades_df.sort_values('entry_time')
     
+    # Check if DataFrame is empty after date filtering
+    if len(df) == 0:
+        # Create an empty figure if no data in the selected date range
+        fig.update_layout(
+            title=title,
+            annotations=[{
+                'text': "No data available for the selected date range",
+                'xref': "paper",
+                'yref': "paper",
+                'x': 0.5,
+                'y': 0.5,
+                'showarrow': False,
+                'font': {'size': 20}
+            }]
+        )
+        
+        if save_path:
+            fig.write_html(save_path)
+            
+        return fig
+        
+    # Calculate cumulative returns for the filtered trades
+    cumulative_returns_data = pd.Series(0, index=df.index)
+    for _, trade in trades_df.iterrows():
+        # Add the trade's profit to all timestamps after the trade's exit time
+        mask = df.index >= trade['exit_time']
+        cumulative_returns_data[mask] += trade['profit_pct']
+        
     # Initial timestamp
     current_time = df.index[0]
-    price_data = df['raw_price']
     
     # Process trades
     for _, trade in trades_df.iterrows():
@@ -168,9 +198,7 @@ def plot_trading_strategy(
                 line=dict(color='#1a9850', width=2),  # sötétebb zöld a jobb láthatóságért
                 name='Winning Trade' if i == 0 else '',
                 showlegend=i == 0,
-                hoverinfo='text',
-                text=hover_text,
-                hoverlabel=dict(bgcolor='#1a9850'),
+                hoverinfo='skip',
             ),
             row=1, col=1
         )
@@ -196,9 +224,7 @@ def plot_trading_strategy(
                 line=dict(color='#d73027', width=2),  # sötétebb piros a jobb láthatóságért
                 name='Losing Trade' if i == 0 else '',
                 showlegend=i == 0,
-                hoverinfo='text',
-                text=hover_text,
-                hoverlabel=dict(bgcolor='#d73027'),
+                hoverinfo='skip',
             ),
             row=1, col=1
         )
@@ -238,14 +264,46 @@ def plot_trading_strategy(
     fig.add_trace(
         go.Scatter(
             x=cumulative_returns_data.index,
-            y=cumulative_returns_data.values,
+            y=cumulative_returns_data.values,  # Remove * 100 since values are already in percentage
             mode='lines',
-            name='Cumulative Return',
-            line=dict(color='purple', width=2),
-            fill='tozeroy',
+            name='Cumulative Returns (%)',
+            line=dict(color='#4393c3', width=2),
+            hoverinfo='x+y',
         ),
         row=2, col=1
     )
+    
+    if date_range is not None:
+        # Set x-axis range to match the date range for both subplots
+        fig.update_xaxes(range=[start_date, end_date], row=1, col=1)
+        fig.update_xaxes(range=[start_date, end_date], row=2, col=1)
+        
+    # Set dynamic y-axis ranges with 20% padding
+    # For price chart
+    if len(df) > 0:
+        price_min = df['raw_price'].min()
+        price_max = df['raw_price'].max()
+        price_range = price_max - price_min
+        price_padding = price_range * 0.2
+        fig.update_yaxes(range=[price_min - price_padding, price_max + price_padding], row=1, col=1)
+    
+    # For returns chart
+    if len(cumulative_returns_data) > 0:
+        returns_min = cumulative_returns_data.min()
+        returns_max = cumulative_returns_data.max()
+        returns_range = returns_max - returns_min
+        returns_padding = returns_range * 0.2
+        
+        # Ensure we don't go below -100% return (which is impossible)
+        lower_bound = max(returns_min - returns_padding, -1)
+        upper_bound = returns_max + returns_padding
+        
+        fig.update_yaxes(
+            title_text="Cumulative Returns (%)",
+            tickformat=".1%",  # Format as percentage with 1 decimal place
+            row=2, col=1,
+            range=[lower_bound, upper_bound]
+        )
     
     # Format the chart
     fig.update_layout(
@@ -262,9 +320,14 @@ def plot_trading_strategy(
         )
     )
     
-    # Set price scale starting from 75k
-    min_y = 75000
-    max_y = df['raw_price'].max() * 1.01  # Small margin at the top
+    # Set price scale based on date range min-max with ±20% margin
+    min_price = df['raw_price'].min()
+    max_price = df['raw_price'].max()
+    price_range = max_price - min_price
+    
+    min_y = max(0, min_price - price_range * 0.20)  # 20% margin below, but not negative
+    max_y = max_price + price_range * 0.20  # 20% margin above
+    
     fig.update_yaxes(
         range=[min_y, max_y],
         row=1, col=1
@@ -274,16 +337,6 @@ def plot_trading_strategy(
     fig.update_xaxes(
         title_text="Date",
         row=2, col=1
-    )
-    # Cumulative return panel scaling - based on the full data
-    min_return = min(0, all_cum_returns.min() * 1.1) if len(all_cum_returns) > 0 else -0.1
-    max_return = max(0.1, all_cum_returns.max() * 1.1) if len(all_cum_returns) > 0 else 0.1
-    
-    fig.update_yaxes(
-        title_text="Cumulative Return (%)",
-        tickformat=".2%",  # More precise percentage format
-        row=2, col=1,
-        range=[min_return, max_return]
     )
     
     # X-axis formatting
@@ -307,15 +360,53 @@ def plot_trading_strategy(
         row=3, col=1
     )
     
+    # Create trade list HTML table
+    trade_list_html = "<div style='margin-top: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;'>"  
+    trade_list_html += "<h3>Trade List</h3>"
+    trade_list_html += "<table style='width:100%; border-collapse: collapse;'>"  
+    trade_list_html += "<tr style='background-color: #e9ecef;'>" \
+                     "<th style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>Trade #</th>" \
+                     "<th style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>Result</th>" \
+                     "<th style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>Direction</th>" \
+                     "<th style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>Open Time</th>" \
+                     "<th style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>Close Time</th>" \
+                     "<th style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>Profit %</th>" \
+                     "</tr>"
+    
+    # Sort trades by entry time for the table
+    sorted_trades = trades_df.sort_values('entry_time')
+    
+    for i, (_, trade) in enumerate(sorted_trades.iterrows(), 1):
+        result = "Win" if trade['profit_pct'] > 0 else "Loss"
+        result_color = "#1a9850" if trade['profit_pct'] > 0 else "#d73027"
+        
+        trade_list_html += f"<tr>" \
+                         f"<td style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>{i}</td>" \
+                         f"<td style='padding: 8px; text-align: left; border: 1px solid #dee2e6; color: {result_color}; font-weight: bold;'>{result}</td>" \
+                         f"<td style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>{trade['direction']}</td>" \
+                         f"<td style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>{trade['entry_time'].strftime('%Y-%m-%d %H:%M:%S')}</td>" \
+                         f"<td style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>{trade['exit_time'].strftime('%Y-%m-%d %H:%M:%S')}</td>" \
+                         f"<td style='padding: 8px; text-align: left; border: 1px solid #dee2e6;'>{trade['profit_pct']*100:.2f}%</td>" \
+                         f"</tr>"
+    
+    trade_list_html += "</table></div>"
+    
     # Save if path is provided
     if save_path:
         t_save = time.time()
         if save_path.endswith('.html'):
-            fig.write_html(save_path)
+            html_path = save_path
         else:
-            save_path_html = save_path if save_path.endswith('.html') else save_path + '.html'
-            fig.write_html(save_path_html)
-        print(f"Interactive chart saved: {save_path} ({time.time() - t_save:.2f}s)")
+            html_path = save_path if save_path.endswith('.html') else save_path + '.html'
+            
+        # First get the standard plotly HTML
+        fig_html = fig.to_html(include_plotlyjs='cdn')
+        
+        # Then combine with our trade list HTML and write to file
+        with open(html_path, 'w') as f:
+            f.write(fig_html.replace('</body>', trade_list_html + '</body>'))
+            
+        print(f"Interactive chart with trade list saved: {html_path} ({time.time() - t_save:.2f}s)")
     
     return fig
 
@@ -324,7 +415,7 @@ def load_and_visualize_strategy(
     predictions_file: str,
     signal_threshold: int = 1,
     save_path: Optional[str] = None,
-    max_trades: int = 500
+    date_range: tuple = None
 ) -> go.Figure:
     """
     Loads predictions, runs the trading strategy and visualizes the results
@@ -333,7 +424,7 @@ def load_and_visualize_strategy(
         predictions_file: Path to the parquet file
         signal_threshold: How many consecutive signals are needed to start/close a trade
         save_path: Save path (if provided)
-        max_trades: Maximum number of trades to display (samples if there are too many data points)
+        date_range: Optional tuple of (start_datetime, end_datetime) to filter trades by date range
         
     Returns:
         plotly.graph_objects.Figure: The created interactive chart
@@ -356,7 +447,7 @@ def load_and_visualize_strategy(
     print("========================")
     print(f"Total trades: {results['total_trades']}")
     print(f"Winning trades: {results['winning_trades']} ({results['win_rate']*100:.2f}%)")
-    print(f"Total return: {results['total_return']*100:.2f}%")
+    print("Simple-sum return: {:.2f}%".format(results['total_return']*100))
     print(f"Average return per trade: {results['avg_return']*100:.2f}%")
     print(f"Average trade duration: {results['avg_trade_duration']:.2f} seconds")
     print(f"Median trade duration: {results['median_trade_duration']:.2f} seconds")
@@ -367,16 +458,34 @@ def load_and_visualize_strategy(
     
     # Modell név kiolvasása a fájlnévből
     model_name = os.path.basename(predictions_file).split("_")[0]
-    # Összes kereskedés száma
-    total_trades_count = len(strategy.trades)
-    title = f"Trading Strategy Performance - {model_name} (Signal Threshold: {signal_threshold}, Total Trades: {total_trades_count}, Max Displayed: {max_trades})"
+    
+    # Meghatározza a megjelenítendő kereskedések számát
+    if date_range is not None:
+        # Ha van dátumszűrés, akkor becsüljük a szűrt kereskedések számát
+        start_date, end_date = date_range
+        # Convert string dates to pandas datetime if needed
+        if isinstance(start_date, str):
+            start_date = pd.to_datetime(start_date)
+        if isinstance(end_date, str):
+            end_date = pd.to_datetime(end_date)
+            
+        # Pre-filter trades for the title display
+        filtered_trades_count = sum(
+            1 for trade in strategy.trades 
+            if (trade['entry_time'] >= start_date) and (trade['exit_time'] <= end_date)
+        )
+        title = f"Trading Strategy Performance - {model_name} (Signal Threshold: {signal_threshold}, Trades in Chart: {filtered_trades_count})"
+    else:
+        # Ha nincs dátumszűrés, akkor az összes kereskedés számát
+        total_trades_count = len(strategy.trades)
+        title = f"Trading Strategy Performance - {model_name} (Signal Threshold: {signal_threshold}, Total Trades: {total_trades_count})"
     
     # Vizualizáció létrehozása
     fig = plot_trading_strategy(
         strategy=strategy,
         title=title,
         save_path=save_path,
-        max_trades=max_trades
+        date_range=date_range
     )
     
     return fig
